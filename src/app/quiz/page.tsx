@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, Suspense } from 'react';
 import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { Dumbbell, X, Zap, BarChart2, CheckCircle2, XCircle, Trophy, SkipForward } from 'lucide-react';
@@ -211,7 +211,7 @@ function AttemptHistoryTable({ attempts }: { attempts: AttemptLog[] }) {
   );
 }
 
-export default function QuizSessionPage() {
+function QuizSessionContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -738,5 +738,17 @@ export default function QuizSessionPage() {
         }
       `}</style>
     </div>
+  );
+}
+
+export default function QuizSessionPage() {
+  return (
+    <Suspense fallback={
+      <div className="bg-white h-[100dvh] overflow-hidden flex items-center justify-center font-body-md text-on-surface w-full">
+        <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+      </div>
+    }>
+      <QuizSessionContent />
+    </Suspense>
   );
 }
