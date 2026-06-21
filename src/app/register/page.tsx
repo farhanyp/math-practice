@@ -1,14 +1,17 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useEffect } from 'react';
 import Link from 'next/link';
-import { Dumbbell, User, Mail, Lock, Loader2, CheckCircle, ArrowRight } from 'lucide-react';
-import { useRouter } from 'next/navigation';
+import { Dumbbell, User, Mail, Lock, Loader2, CheckCircle, ArrowRight, AlertCircle } from 'lucide-react';
+import { useRegister } from '@/hooks/useRegister';
 
 export default function RegisterPage() {
-  const [loading, setLoading] = useState(false);
-  const [success, setSuccess] = useState(false);
-  const router = useRouter();
+  const {
+    loading,
+    success,
+    errorMsg,
+    register,
+  } = useRegister();
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
@@ -23,24 +26,6 @@ export default function RegisterPage() {
       document.body.style.backgroundPosition = '';
     };
   }, []);
-
-  const handleRegister = (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-
-    setTimeout(() => {
-      setLoading(false);
-      setSuccess(true);
-
-      // Trigger success visual effect
-      document.body.style.transition = 'background-color 1s ease';
-      document.body.style.backgroundColor = '#e6fcf5';
-
-      setTimeout(() => {
-        router.push('/login');
-      }, 2000);
-    }, 1500);
-  };
 
   return (
     <div className="kinetic-gradient h-[100dvh] overflow-hidden flex items-center justify-center font-body-md text-on-surface p-2 md:p-4 w-full">
@@ -62,7 +47,15 @@ export default function RegisterPage() {
           {/* Subtle Decorative Element */}
           <div className="absolute top-0 left-0 w-1 h-full bg-primary"></div>
 
-          <form className="space-y-4" id="registerForm" onSubmit={handleRegister}>
+          {/* Error Alert */}
+          {errorMsg && (
+            <div className="mb-4 p-3 bg-error-container text-on-error-container rounded-lg border border-error/20 flex items-center gap-3" id="register-error">
+              <AlertCircle className="w-5 h-5 shrink-0" />
+              <span className="font-body-md text-sm">{errorMsg}</span>
+            </div>
+          )}
+
+          <form className="space-y-4" id="registerForm" onSubmit={register}>
             {/* Nama Lengkap */}
             <div className="space-y-1">
               <label className="font-label-caps text-label-caps text-on-surface-variant block uppercase" htmlFor="name">Nama Lengkap</label>

@@ -1,77 +1,283 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
-import { 
-  Dumbbell, 
-  TrendingUp, 
-  Settings, 
-  LogOut, 
-  UserCircle, 
-  TrendingDown, 
-  Info, 
-  BarChart2, 
-  Download,
-  ChevronLeft,
-  ChevronRight,
-  Menu
+import {
+  Dumbbell,
+  TrendingUp,
+  LogOut,
+  UserCircle,
+  Info,
+  Menu,
+  RefreshCw,
 } from 'lucide-react';
+import { fetchWithAuth } from '@/lib/api';
 
+import StatCard from '@/components/dashboard/StatCard';
+import DualLineChart from '@/components/dashboard/DualLineChart';
+import OperationBreakdown from '@/components/dashboard/OperationBreakdown';
+import ActivityHeatmap from '@/components/dashboard/ActivityHeatmap';
+import AutoInsights from '@/components/dashboard/AutoInsights';
+
+// ────────────────────────────── Types ──────────────────────────────
+type FilterType = '1' | '3' | '7' | '30' | 'all';
+
+interface StatsData {
+  current: {
+    totalSessions: number;
+    accuracy: number;
+    avgResponseMs: number;
+    skipCount: number;
+    timeoutCount: number;
+  };
+  previous: {
+    totalSessions: number;
+    accuracy: number;
+    avgResponseMs: number;
+    skipCount: number;
+    timeoutCount: number;
+  };
+  deltas: {
+    totalSessions: number | null;
+    accuracy: number | null;
+    avgResponseMs: number | null;
+    skipCount: number | null;
+    timeoutCount: number | null;
+  };
+}
+
+interface DailyData {
+  date: string;
+  accuracy: number;
+  avgResponseMs: number;
+  sessionCount: number;
+  totalAttempts: number;
+  correctCount: number;
+  skipCount: number;
+  timeoutCount: number;
+}
+
+interface OperationData {
+  key: string;
+  label: string;
+  correct: number;
+  wrong: number;
+  skipped: number;
+  timeout: number;
+  total: number;
+  accuracy: number;
+  avgResponseMs: number;
+}
+
+interface HeatmapDay {
+  date: string;
+  count: number;
+}
+
+// ────────────────────────────── Filter Config ──────────────────────
+const FILTER_OPTIONS: { value: FilterType; label: string }[] = [
+  { value: '1',   label: '1 Hari' },
+  { value: '3',   label: '3 Hari' },
+  { value: '7',   label: '7 Hari' },
+  { value: '30',  label: 'Bulanan' },
+  { value: 'all', label: 'Semua' },
+];
+
+// ────────────────────────────── Component ──────────────────────────
 export default function DashboardPage() {
-  const [filter, setFilter] = useState<'7' | '30' | 'all'>('7');
+  const [filter, setFilter]         = useState<FilterType>('7');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [user, setUser]             = useState<any>(null);
 
+  const [stats, setStats]           = useState<StatsData | null>(null);
+  const [daily, setDaily]           = useState<DailyData[]>([]);
+  const [operations, setOperations] = useState<OperationData[]>([]);
+  const [heatmap, setHeatmap]       = useState<HeatmapDay[]>([]);
+
+  const [loadingStats, setLoadingStats]   = useState(true);
+  const [loadingDaily, setLoadingDaily]   = useState(true);
+  const [loadingOps, setLoadingOps]       = useState(true);
+  const [loadingHeatmap, setLoadingHeatmap] = useState(true);
+
+  // ── Fetch user ──
+  useEffect(() => {
+    const storedUser = localStorage.getItem('user');
+    if (storedUser) {
+      try {
+        setUser(JSON.parse(storedUser));
+      } catch (e) {
+        console.error('Failed to parse user from localStorage', e);
+      }
+    } else {
+      window.location.href = '/login';
+    }
+  }, []);
+
+  // ── Fetch filter-dependent data ──
+  const fetchFilteredData = useCallback(async (p: FilterType) => {
+    setLoadingStats(true);
+    setLoadingDaily(true);
+    setLoadingOps(true);
+
+    const qs = `?period=${p}`;
+
+    try {
+      const [statsRes, dailyRes, opsRes] = await Promise.all([
+        fetchWithAuth(`/api/dashboard/stats${qs}`),
+        fetchWithAuth(`/api/dashboard/daily${qs}`),
+        fetchWithAuth(`/api/dashboard/operations${qs}`),
+      ]);
+
+      const [statsJson, dailyJson, opsJson] = await Promise.all([
+        statsRes.json(),
+        dailyRes.json(),
+        opsRes.json(),
+      ]);
+
+      setStats(statsJson);
+      setDaily(dailyJson.daily ?? []);
+      setOperations(opsJson.operations ?? []);
+    } catch (err) {
+      console.error('Failed to fetch dashboard data:', err);
+    } finally {
+      setLoadingStats(false);
+      setLoadingDaily(false);
+      setLoadingOps(false);
+    }
+  }, []);
+
+  // ── Fetch heatmap (once, not filter-dependent) ──
+  const fetchHeatmap = useCallback(async () => {
+    setLoadingHeatmap(true);
+    try {
+      const res  = await fetchWithAuth('/api/dashboard/heatmap');
+      const json = await res.json();
+      setHeatmap(json.heatmap ?? []);
+    } catch (err) {
+      console.error('Failed to fetch heatmap:', err);
+    } finally {
+      setLoadingHeatmap(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchFilteredData(filter);
+  }, [filter, fetchFilteredData]);
+
+  useEffect(() => {
+    fetchHeatmap();
+  }, [fetchHeatmap]);
+
+  // ── Helpers ──
+  const getInitials = (name: string) => {
+    if (!name) return 'U';
+    const parts = name.trim().split(' ');
+    return parts.length >= 2
+      ? (parts[0][0] + parts[1][0]).toUpperCase()
+      : name.substring(0, 2).toUpperCase();
+  };
+
+  const isLoading = loadingStats;
+
+  // ───────────────────────────── Render ─────────────────────────────
   return (
     <div className="bg-white text-on-surface font-body-md min-h-screen flex w-full">
+
       {/* Mobile Backdrop */}
       {isMobileMenuOpen && (
-        <div 
+        <div
           className="fixed inset-0 bg-black/20 backdrop-blur-sm z-40 md:hidden"
           onClick={() => setIsMobileMenuOpen(false)}
         />
       )}
 
-      {/* SideNavBar (Desktop & Collapsible Mobile) */}
-      <aside className={`fixed left-0 top-0 h-full flex flex-col z-50 bg-surface border-r border-outline-variant w-64 p-6 transform transition-transform duration-300 md:translate-x-0 ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+      {/* SideNavBar */}
+      <aside
+        className={`fixed left-0 top-0 h-full flex flex-col z-50 bg-surface border-r border-outline-variant w-64 p-6 transform transition-transform duration-300 md:translate-x-0 ${
+          isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
+      >
         <div className="mb-10">
           <Link href="/" className="flex flex-col">
             <h1 className="font-headline-md text-2xl font-black text-primary">Math Muscle</h1>
-            <p className="font-label-caps text-xs text-on-surface-variant uppercase tracking-widest mt-1">Mental Athlete</p>
+            <p className="font-label-caps text-xs text-on-surface-variant uppercase tracking-widest mt-1">
+              Mental Athlete
+            </p>
           </Link>
         </div>
+
         <nav className="flex-1 space-y-2">
-          <Link className="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-surface-container-high rounded-lg transition-all" href="/">
+          <Link
+            className="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-surface-container-high rounded-lg transition-all"
+            href="/"
+          >
             <Dumbbell className="w-5 h-5" />
-            <span className="font-label-caps text-xs font-bold uppercase tracking-wider">Latihan Baru</span>
+            <span className="font-label-caps text-xs font-bold uppercase tracking-wider">
+              Latihan Baru
+            </span>
           </Link>
-          <Link className="flex items-center gap-3 px-4 py-3 bg-primary/10 text-primary rounded-lg transition-all" href="/dashboard">
+          <Link
+            className="flex items-center gap-3 px-4 py-3 bg-primary/10 text-primary rounded-lg transition-all"
+            href="/dashboard"
+          >
             <TrendingUp className="w-5 h-5" strokeWidth={2.5} />
-            <span className="font-label-caps text-xs font-bold uppercase tracking-wider">Dashboard Perkembangan</span>
+            <span className="font-label-caps text-xs font-bold uppercase tracking-wider">
+              Dashboard
+            </span>
           </Link>
           <div className="pt-6 pb-2">
-            <Link href="/" className="w-full flex items-center justify-center bg-primary text-white font-label-caps text-xs font-bold uppercase tracking-wider py-3 rounded-lg hover:bg-primary-container transition-colors shadow-sm">
+            <Link
+              href="/"
+              className="w-full flex items-center justify-center bg-primary text-white font-label-caps text-xs font-bold uppercase tracking-wider py-3 rounded-lg hover:bg-primary-container transition-colors shadow-sm"
+            >
               Mulai Latihan
             </Link>
           </div>
         </nav>
-        <div className="mt-auto border-t border-outline-variant pt-6 space-y-2">
-          <Link className="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-surface-container-high rounded-lg transition-all" href="#">
-            <Settings className="w-5 h-5" />
-            <span className="font-label-caps text-xs font-bold uppercase tracking-wider">Pengaturan</span>
-          </Link>
-          <Link className="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-surface-container-high rounded-lg transition-all" href="/login">
+
+        <div className="mt-auto border-t border-outline-variant pt-6 space-y-4">
+          {user && (
+            <div className="flex items-center gap-3 px-2 mb-2">
+              <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold shadow-sm shrink-0">
+                {getInitials(user.name)}
+              </div>
+              <div className="flex flex-col truncate overflow-hidden">
+                <span className="text-sm font-bold text-on-surface truncate">{user.name}</span>
+                <span className="text-xs text-on-surface-variant truncate">{user.email}</span>
+              </div>
+            </div>
+          )}
+          <button
+            onClick={async () => {
+              try {
+                const refreshToken = localStorage.getItem('refresh_token');
+                const { logoutUser } = await import('@/actions/auth');
+                await logoutUser(refreshToken);
+                localStorage.removeItem('access_token');
+                localStorage.removeItem('refresh_token');
+                localStorage.removeItem('user');
+                window.location.href = '/login';
+              } catch (e) {
+                console.error(e);
+              }
+            }}
+            className="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-surface-container-high rounded-lg transition-all w-full text-left"
+          >
             <LogOut className="w-5 h-5" />
-            <span className="font-label-caps text-xs font-bold uppercase tracking-wider">Keluar</span>
-          </Link>
+            <span className="font-label-caps text-xs font-bold uppercase tracking-wider">
+              Keluar
+            </span>
+          </button>
         </div>
       </aside>
 
-      {/* Main Content Area */}
+      {/* Main Content */}
       <div className="flex-1 flex flex-col md:ml-64 w-full h-[100dvh] overflow-hidden">
-        {/* TopNavBar (Mobile Only) */}
+
+        {/* Mobile TopNav */}
         <header className="flex md:hidden justify-between items-center w-full px-4 h-16 shrink-0 bg-white border-b border-outline-variant z-40 relative">
           <div className="flex items-center gap-2">
-            <button 
+            <button
               onClick={() => setIsMobileMenuOpen(true)}
               className="p-2 -ml-2 text-on-surface-variant hover:bg-surface-container rounded-lg transition-colors"
             >
@@ -82,266 +288,157 @@ export default function DashboardPage() {
               <span className="font-headline-md text-lg font-bold text-primary">Math Muscle</span>
             </Link>
           </div>
-          <div className="flex items-center gap-4">
-            <UserCircle className="text-primary hover:text-primary-container transition-colors w-7 h-7 cursor-pointer" strokeWidth={1.5} />
-          </div>
+          <UserCircle className="text-primary w-7 h-7" strokeWidth={1.5} />
         </header>
 
-        {/* Scrollable Main Content */}
+        {/* Scrollable Content */}
         <main className="flex-1 overflow-y-auto p-4 md:p-8">
           <div className="max-w-6xl mx-auto space-y-6">
-            
-            {/* Header Section */}
+
+            {/* ── Page Header + Filter ── */}
             <header className="flex flex-col md:flex-row md:items-end justify-between gap-4">
               <div>
-                <h2 className="font-headline-lg text-3xl font-bold text-on-surface tracking-tight">Dashboard Statistik</h2>
-                <p className="text-on-surface-variant text-sm mt-1">Analisis performa atletik kognitif Anda secara real-time.</p>
+                <h2 className="font-headline-lg text-3xl font-bold text-on-surface tracking-tight">
+                  Dashboard Statistik
+                </h2>
+                <p className="text-on-surface-variant text-sm mt-1">
+                  Analisis performa kognitif Anda secara real-time.
+                </p>
               </div>
-              <div className="flex items-center gap-1 bg-surface-container-lowest border border-outline-variant p-1 rounded-xl shadow-sm">
-                <button 
-                  onClick={() => setFilter('7')}
-                  className={`px-4 py-2 rounded-lg font-label-caps text-xs font-bold uppercase transition-colors ${filter === '7' ? 'bg-primary/10 text-primary' : 'text-on-surface-variant hover:bg-surface-container'}`}
+
+              <div className="flex items-center gap-2">
+                {/* Refresh */}
+                <button
+                  onClick={() => { fetchFilteredData(filter); fetchHeatmap(); }}
+                  className="p-2 rounded-lg border border-outline-variant text-on-surface-variant hover:bg-surface-container transition-colors"
+                  title="Refresh data"
                 >
-                  7 Hari
+                  <RefreshCw className="w-4 h-4" />
                 </button>
-                <button 
-                  onClick={() => setFilter('30')}
-                  className={`px-4 py-2 rounded-lg font-label-caps text-xs font-bold uppercase transition-colors ${filter === '30' ? 'bg-primary/10 text-primary' : 'text-on-surface-variant hover:bg-surface-container'}`}
-                >
-                  30 Hari
-                </button>
-                <button 
-                  onClick={() => setFilter('all')}
-                  className={`px-4 py-2 rounded-lg font-label-caps text-xs font-bold uppercase transition-colors ${filter === 'all' ? 'bg-primary/10 text-primary' : 'text-on-surface-variant hover:bg-surface-container'}`}
-                >
-                  Semua
-                </button>
+
+                {/* Filter pills */}
+                <div className="flex items-center gap-1 bg-surface-container-lowest border border-outline-variant p-1 rounded-xl shadow-sm">
+                  {FILTER_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.value}
+                      onClick={() => setFilter(opt.value)}
+                      className={`px-3 py-2 rounded-lg font-label-caps text-xs font-bold uppercase transition-colors ${
+                        filter === opt.value
+                          ? 'bg-primary/10 text-primary'
+                          : 'text-on-surface-variant hover:bg-surface-container'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
               </div>
             </header>
 
-            {/* Top Row: Stat Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6">
-              {/* Total Sesi */}
-              <div className="bg-white border border-outline-variant rounded-2xl p-6 shadow-sm flex flex-col justify-between hover:shadow-md transition-shadow">
-                <div>
-                  <span className="font-label-caps text-[10px] text-on-surface-variant uppercase tracking-widest font-bold">Total Sesi</span>
-                  <div className="flex items-baseline gap-2 mt-2">
-                    <span className="font-display-numeral text-4xl font-black text-primary">142</span>
-                    <span className="text-secondary font-label-caps text-[10px] font-bold flex items-center bg-secondary/10 px-2 py-0.5 rounded-full">
-                      <TrendingUp className="w-3 h-3 mr-1" strokeWidth={3} /> +12%
-                    </span>
-                  </div>
-                </div>
-                <div className="mt-6 h-1.5 bg-surface-container rounded-full overflow-hidden">
-                  <div className="h-full bg-primary w-2/3 rounded-full"></div>
-                </div>
-              </div>
-
-              {/* Rata-rata Akurasi */}
-              <div className="bg-white border border-outline-variant rounded-2xl p-6 shadow-sm flex flex-col justify-between hover:shadow-md transition-shadow">
-                <div>
-                  <span className="font-label-caps text-[10px] text-on-surface-variant uppercase tracking-widest font-bold">Rata-rata Akurasi (%)</span>
-                  <div className="flex items-baseline gap-2 mt-2">
-                    <span className="font-display-numeral text-4xl font-black text-primary">94.8</span>
-                    <span className="text-secondary font-label-caps text-[10px] font-bold flex items-center bg-secondary/10 px-2 py-0.5 rounded-full">
-                      <TrendingUp className="w-3 h-3 mr-1" strokeWidth={3} /> +2.1%
-                    </span>
-                  </div>
-                </div>
-                <div className="mt-6 h-1.5 bg-surface-container rounded-full overflow-hidden">
-                  <div className="h-full bg-secondary w-[94.8%] rounded-full"></div>
-                </div>
-              </div>
-
-              {/* Rata-rata Respons */}
-              <div className="bg-white border border-outline-variant rounded-2xl p-6 shadow-sm flex flex-col justify-between hover:shadow-md transition-shadow">
-                <div>
-                  <span className="font-label-caps text-[10px] text-on-surface-variant uppercase tracking-widest font-bold">Rata-rata Respons (ms)</span>
-                  <div className="flex items-baseline gap-2 mt-2">
-                    <span className="font-display-numeral text-4xl font-black text-primary">842</span>
-                    <span className="text-tertiary font-label-caps text-[10px] font-bold flex items-center bg-error/10 px-2 py-0.5 rounded-full text-error">
-                      <TrendingDown className="w-3 h-3 mr-1" strokeWidth={3} /> -45ms
-                    </span>
-                  </div>
-                </div>
-                <div className="mt-6 h-1.5 bg-surface-container rounded-full overflow-hidden">
-                  <div className="h-full bg-primary-container w-3/4 rounded-full"></div>
-                </div>
-              </div>
+            {/* ── KPI Cards ── */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-5">
+              <StatCard
+                label="Total Sesi"
+                value={isLoading ? '—' : (stats?.current.totalSessions ?? 0)}
+                delta={stats?.deltas.totalSessions ?? null}
+                progressPct={isLoading ? undefined : Math.min((stats?.current.totalSessions ?? 0) / 20 * 100, 100)}
+                progressColor="bg-primary"
+                isLoading={isLoading}
+              />
+              <StatCard
+                label="Rata-rata Akurasi"
+                value={isLoading ? '—' : (stats?.current.accuracy ?? 0)}
+                unit="%"
+                delta={stats?.deltas.accuracy ?? null}
+                progressPct={isLoading ? undefined : (stats?.current.accuracy ?? 0)}
+                progressColor="bg-secondary"
+                isLoading={isLoading}
+              />
+              <StatCard
+                label="Rata-rata Respons"
+                value={isLoading ? '—' : (stats?.current.avgResponseMs ?? 0)}
+                unit="ms"
+                delta={stats?.deltas.avgResponseMs ?? null}
+                deltaUnit="ms"
+                progressPct={isLoading ? undefined : Math.max(0, 100 - ((stats?.current.avgResponseMs ?? 0) / 5000 * 100))}
+                progressColor="bg-primary-container"
+                isLoading={isLoading}
+              />
+              <StatCard
+                label="Soal Di-Skip"
+                value={isLoading ? '—' : (stats?.current.skipCount ?? 0)}
+                delta={stats?.deltas.skipCount ?? null}
+                note="Lebih sedikit lebih baik"
+                isLoading={isLoading}
+              />
+              <StatCard
+                label="Soal Timeout"
+                value={isLoading ? '—' : (stats?.current.timeoutCount ?? 0)}
+                delta={stats?.deltas.timeoutCount ?? null}
+                note="Lebih sedikit lebih baik"
+                isLoading={isLoading}
+              />
             </div>
 
-            {/* Middle Row: Charts */}
+            {/* ── Charts Row ── */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
-              {/* Line Chart: Response Time Trend */}
+
+              {/* Dual Line Chart */}
               <div className="bg-white border border-outline-variant rounded-2xl p-6 shadow-sm hover:shadow-md transition-shadow">
-                <div className="flex justify-between items-center mb-6">
-                  <h3 className="font-headline-md text-lg font-bold text-on-surface">Tren Waktu Respons</h3>
+                <div className="flex justify-between items-center mb-2">
+                  <h3 className="font-headline-md text-lg font-bold text-on-surface">
+                    Tren Harian
+                  </h3>
                   <Info className="w-5 h-5 text-on-surface-variant" />
                 </div>
-                <div className="relative h-48 w-full flex items-end justify-between gap-2 px-2">
-                  {/* Fake Line Chart visualization using SVG */}
-                  <svg className="w-full h-full" viewBox="0 0 400 150" preserveAspectRatio="none">
-                    <path d="M0,120 Q50,110 100,90 T200,80 T300,50 T400,40" fill="none" stroke="#3525cd" strokeWidth="4" strokeLinecap="round"></path>
-                    <circle cx="0" cy="120" fill="#3525cd" r="5" className="hover:r-6 cursor-pointer transition-all"></circle>
-                    <circle cx="100" cy="90" fill="#3525cd" r="5" className="hover:r-6 cursor-pointer transition-all"></circle>
-                    <circle cx="200" cy="80" fill="#3525cd" r="5" className="hover:r-6 cursor-pointer transition-all"></circle>
-                    <circle cx="300" cy="50" fill="#3525cd" r="5" className="hover:r-6 cursor-pointer transition-all"></circle>
-                    <circle cx="400" cy="40" fill="#3525cd" r="5" className="hover:r-6 cursor-pointer transition-all"></circle>
-                    <rect fill="#e0e3e5" height="2" width="400" x="0" y="140" rx="1"></rect>
-                  </svg>
-                </div>
-                <div className="flex justify-between mt-4 text-on-surface-variant font-label-caps text-[10px] font-bold">
-                  <span>SEN</span><span>SEL</span><span>RAB</span><span>KAM</span><span>JUM</span><span>SAB</span><span>MIN</span>
-                </div>
+                {loadingDaily ? (
+                  <div className="h-48 flex items-center justify-center">
+                    <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                  </div>
+                ) : (
+                  <DualLineChart data={daily} period={filter} />
+                )}
               </div>
 
-              {/* Bar Chart: Error Distribution */}
+              {/* Operation Breakdown */}
               <div className="bg-white border border-outline-variant rounded-2xl p-6 shadow-sm hover:shadow-md transition-shadow">
-                <div className="flex justify-between items-center mb-6">
-                  <h3 className="font-headline-md text-lg font-bold text-on-surface">Distribusi Kesalahan</h3>
-                  <BarChart2 className="w-5 h-5 text-on-surface-variant" />
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="font-headline-md text-lg font-bold text-on-surface">
+                    Per Jenis Operasi
+                  </h3>
                 </div>
-                <div className="space-y-5">
-                  <div className="space-y-1.5">
-                    <div className="flex justify-between font-label-caps text-[11px] font-bold">
-                      <span className="uppercase text-on-surface">Penjumlahan (+)</span>
-                      <span className="text-on-surface-variant">12 Errors</span>
-                    </div>
-                    <div className="h-4 bg-surface-container rounded-full overflow-hidden">
-                      <div className="h-full bg-secondary/50 rounded-full" style={{ width: '30%' }}></div>
-                    </div>
+                {loadingOps ? (
+                  <div className="space-y-5">
+                    {[1, 2, 3, 4].map((i) => (
+                      <div key={i} className="space-y-2">
+                        <div className="h-4 bg-surface-container animate-pulse rounded w-3/4" />
+                        <div className="h-4 bg-surface-container animate-pulse rounded" />
+                      </div>
+                    ))}
                   </div>
-                  <div className="space-y-1.5">
-                    <div className="flex justify-between font-label-caps text-[11px] font-bold">
-                      <span className="uppercase text-on-surface">Pengurangan (-)</span>
-                      <span className="text-on-surface-variant">28 Errors</span>
-                    </div>
-                    <div className="h-4 bg-surface-container rounded-full overflow-hidden">
-                      <div className="h-full bg-error/70 rounded-full" style={{ width: '70%' }}></div>
-                    </div>
-                  </div>
-                  <div className="space-y-1.5">
-                    <div className="flex justify-between font-label-caps text-[11px] font-bold">
-                      <span className="uppercase text-on-surface">Perkalian (×)</span>
-                      <span className="text-on-surface-variant">42 Errors</span>
-                    </div>
-                    <div className="h-4 bg-surface-container rounded-full overflow-hidden">
-                      <div className="h-full bg-primary rounded-full" style={{ width: '95%' }}></div>
-                    </div>
-                  </div>
-                  <div className="space-y-1.5">
-                    <div className="flex justify-between font-label-caps text-[11px] font-bold">
-                      <span className="uppercase text-on-surface">Pembagian (÷)</span>
-                      <span className="text-on-surface-variant">8 Errors</span>
-                    </div>
-                    <div className="h-4 bg-surface-container rounded-full overflow-hidden">
-                      <div className="h-full bg-secondary rounded-full" style={{ width: '20%' }}></div>
-                    </div>
-                  </div>
-                </div>
+                ) : (
+                  <OperationBreakdown data={operations} />
+                )}
               </div>
             </div>
 
-            {/* Bottom Row: Session Log Table */}
-            <div className="bg-white border border-outline-variant rounded-2xl shadow-sm overflow-hidden mb-8">
-              <div className="p-4 md:p-6 border-b border-outline-variant flex justify-between items-center bg-surface/50">
-                <h3 className="font-headline-md text-lg font-bold text-on-surface">Log Sesi Latihan</h3>
-                <button className="flex items-center gap-2 text-primary font-label-caps text-[11px] font-bold uppercase hover:bg-primary/5 px-3 py-1.5 rounded-lg transition-colors">
-                  <Download className="w-4 h-4" /> <span className="hidden md:inline">Ekspor CSV</span>
-                </button>
+            {/* ── Activity Heatmap ── */}
+            {loadingHeatmap ? (
+              <div className="bg-white border border-outline-variant rounded-2xl p-6 shadow-sm">
+                <div className="h-6 w-48 bg-surface-container animate-pulse rounded mb-4" />
+                <div className="h-24 bg-surface-container animate-pulse rounded-xl" />
               </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse min-w-[600px]">
-                  <thead>
-                    <tr className="border-b border-outline-variant bg-white">
-                      <th className="p-4 font-label-caps text-[11px] font-bold uppercase text-on-surface-variant">Tanggal</th>
-                      <th className="p-4 font-label-caps text-[11px] font-bold uppercase text-on-surface-variant">Operasi</th>
-                      <th className="p-4 font-label-caps text-[11px] font-bold uppercase text-on-surface-variant">Konfigurasi</th>
-                      <th className="p-4 font-label-caps text-[11px] font-bold uppercase text-on-surface-variant text-center">Akurasi</th>
-                      <th className="p-4 font-label-caps text-[11px] font-bold uppercase text-on-surface-variant text-right">Rerata Kecepatan</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-outline-variant bg-white">
-                    {/* Row 1 */}
-                    <tr className="hover:bg-surface-container transition-colors group">
-                      <td className="p-4 font-body-md text-sm text-on-surface font-medium">24 Okt 2023, 14:20</td>
-                      <td className="p-4">
-                        <div className="flex items-center gap-3">
-                          <span className="w-8 h-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center font-bold text-lg">×</span>
-                          <span className="font-body-md text-sm font-medium">Perkalian</span>
-                        </div>
-                      </td>
-                      <td className="p-4 text-on-surface-variant text-sm">Level 3 (2-digit)</td>
-                      <td className="p-4 text-center">
-                        <span className="px-3 py-1 bg-secondary/10 text-secondary rounded-full font-label-caps text-[10px] font-bold">98%</span>
-                      </td>
-                      <td className="p-4 text-right font-display-numeral text-lg font-bold">1.2s</td>
-                    </tr>
-                    {/* Row 2 */}
-                    <tr className="hover:bg-surface-container transition-colors group">
-                      <td className="p-4 font-body-md text-sm text-on-surface font-medium">24 Okt 2023, 11:05</td>
-                      <td className="p-4">
-                        <div className="flex items-center gap-3">
-                          <span className="w-8 h-8 rounded-lg bg-secondary/10 text-secondary flex items-center justify-center font-bold text-lg">+</span>
-                          <span className="font-body-md text-sm font-medium">Penjumlahan</span>
-                        </div>
-                      </td>
-                      <td className="p-4 text-on-surface-variant text-sm">Level 5 (Mixed)</td>
-                      <td className="p-4 text-center">
-                        <span className="px-3 py-1 bg-secondary/10 text-secondary rounded-full font-label-caps text-[10px] font-bold">100%</span>
-                      </td>
-                      <td className="p-4 text-right font-display-numeral text-lg font-bold">0.7s</td>
-                    </tr>
-                    {/* Row 3 */}
-                    <tr className="hover:bg-surface-container transition-colors group">
-                      <td className="p-4 font-body-md text-sm text-on-surface font-medium">23 Okt 2023, 18:45</td>
-                      <td className="p-4">
-                        <div className="flex items-center gap-3">
-                          <span className="w-8 h-8 rounded-lg bg-error/10 text-error flex items-center justify-center font-bold text-lg">-</span>
-                          <span className="font-body-md text-sm font-medium">Pengurangan</span>
-                        </div>
-                      </td>
-                      <td className="p-4 text-on-surface-variant text-sm">Level 2 (Mental)</td>
-                      <td className="p-4 text-center">
-                        <span className="px-3 py-1 bg-error/10 text-error rounded-full font-label-caps text-[10px] font-bold">82%</span>
-                      </td>
-                      <td className="p-4 text-right font-display-numeral text-lg font-bold">2.4s</td>
-                    </tr>
-                    {/* Row 4 */}
-                    <tr className="hover:bg-surface-container transition-colors group">
-                      <td className="p-4 font-body-md text-sm text-on-surface font-medium">23 Okt 2023, 09:12</td>
-                      <td className="p-4">
-                        <div className="flex items-center gap-3">
-                          <span className="w-8 h-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center font-bold text-lg">÷</span>
-                          <span className="font-body-md text-sm font-medium">Pembagian</span>
-                        </div>
-                      </td>
-                      <td className="p-4 text-on-surface-variant text-sm">Level 4 (Decimal)</td>
-                      <td className="p-4 text-center">
-                        <span className="px-3 py-1 bg-secondary/10 text-secondary rounded-full font-label-caps text-[10px] font-bold">95%</span>
-                      </td>
-                      <td className="p-4 text-right font-display-numeral text-lg font-bold">1.8s</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-              
-              {/* Pagination */}
-              <div className="p-4 bg-surface/30 border-t border-outline-variant flex items-center justify-between">
-                <span className="font-label-caps text-[10px] text-on-surface-variant font-bold uppercase">1-10 dari 142 sesi</span>
-                <div className="flex gap-2">
-                  <button className="w-8 h-8 flex items-center justify-center rounded-lg border border-outline-variant text-on-surface-variant hover:bg-surface-container hover:text-primary transition-colors">
-                    <ChevronLeft className="w-4 h-4" />
-                  </button>
-                  <button className="w-8 h-8 flex items-center justify-center rounded-lg bg-primary text-white font-label-caps text-xs font-bold">1</button>
-                  <button className="w-8 h-8 flex items-center justify-center rounded-lg border border-outline-variant text-on-surface-variant font-label-caps text-xs font-bold hover:bg-surface-container transition-colors">2</button>
-                  <button className="w-8 h-8 flex items-center justify-center rounded-lg border border-outline-variant text-on-surface-variant font-label-caps text-xs font-bold hover:bg-surface-container transition-colors">3</button>
-                  <button className="w-8 h-8 flex items-center justify-center rounded-lg border border-outline-variant text-on-surface-variant hover:bg-surface-container hover:text-primary transition-colors">
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-            </div>
+            ) : (
+              <ActivityHeatmap data={heatmap} />
+            )}
+
+            {/* ── Auto Insights ── */}
+            <AutoInsights
+              stats={stats}
+              operations={operations}
+              period={filter}
+            />
+
           </div>
         </main>
       </div>

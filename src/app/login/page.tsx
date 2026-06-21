@@ -1,45 +1,24 @@
 "use client";
 
-import React, { useState } from 'react';
+import React from 'react';
 import Link from 'next/link';
 import { Dumbbell, AlertCircle, Mail, Lock, Loader2 } from 'lucide-react';
-import { useRouter } from 'next/navigation';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useLogin } from '@/hooks/useLogin';
 
 export default function LoginPage() {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(false);
-  const [shake, setShake] = useState(false);
-  const router = useRouter();
-
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setError(false);
-
-    // Simulate API Call
-    await new Promise(resolve => setTimeout(resolve, 1500));
-
-    // Logic to show error for demo purposes
-    if (email !== 'demo@mathmuscle.com') {
-      setError(true);
-      setLoading(false);
-      
-      // Shake effect on the container
-      setShake(true);
-      setTimeout(() => {
-        setShake(false);
-      }, 500);
-    } else {
-      // Success redirect simulation
-      alert('Login Berhasil! Mengalihkan ke Dashboard...');
-      router.push('/'); // Redirecting to home/dashboard
-    }
-  };
+  const {
+    email,
+    setEmail,
+    password,
+    setPassword,
+    loading,
+    errorMsg,
+    shake,
+    login,
+  } = useLogin();
 
   return (
     <div className="bg-background text-on-background font-body-md h-[100dvh] overflow-hidden flex items-center justify-center p-4 relative w-full">
@@ -62,22 +41,23 @@ export default function LoginPage() {
           </div>
 
           {/* Error Alert */}
-          {error && (
+          {errorMsg && (
             <div className="mb-6 p-4 bg-error-container text-on-error-container rounded-lg border border-error/20 flex items-center gap-3 shake" id="login-error">
               <AlertCircle className="w-5 h-5 shrink-0" />
-              <span className="font-body-md text-sm">Email atau password yang Anda masukkan salah.</span>
+              <span className="font-body-md text-sm">{errorMsg}</span>
             </div>
           )}
 
           {/* Form */}
-          <form className="gap-4 flex flex-col" id="login-form" onSubmit={handleLogin}>
+          <form className="gap-4 flex flex-col" id="login-form" onSubmit={login}>
             <div className="space-y-1.5">
               <Label className="font-label-caps text-on-surface-variant" htmlFor="email">Email</Label>
               <div className="relative group">
                 <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant group-focus-within:text-primary transition-colors w-5 h-5" />
                 <Input 
                   className="w-full pl-10 pr-4 h-12 bg-white border-outline-variant rounded-lg focus-visible:ring-2 focus-visible:ring-primary/20 focus-visible:border-primary placeholder:text-outline" 
-                  id="email" 
+                  id="email"
+                  name="email" 
                   placeholder="nama@email.com" 
                   required 
                   type="email"
@@ -96,7 +76,8 @@ export default function LoginPage() {
                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant group-focus-within:text-primary transition-colors w-5 h-5" />
                 <Input 
                   className="w-full pl-10 pr-4 h-12 bg-white border-outline-variant rounded-lg focus-visible:ring-2 focus-visible:ring-primary/20 focus-visible:border-primary placeholder:text-outline" 
-                  id="password" 
+                  id="password"
+                  name="password" 
                   placeholder="••••••••" 
                   required 
                   type="password"
